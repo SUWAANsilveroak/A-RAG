@@ -1,0 +1,1 @@
+"""Compression utility placeholder."""

@@ -1,0 +1,1 @@
+"""Re-ranking implementation placeholder."""

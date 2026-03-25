@@ -1,0 +1,11 @@
+# Phase 1.1 bootstrap dependency manifest for the A-RAG project.
+# Installation is handled in Phase 1.2.
+
+faiss-cpu
+sentence-transformers
+litellm
+langgraph
+rank-bm25
+spacy
+nltk
+PyYAML

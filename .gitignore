@@ -18,3 +18,5 @@ index/*
 
 # But DON'T ignore README.md
 !README.md
+
+.tmp/

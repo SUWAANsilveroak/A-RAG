@@ -15,6 +15,9 @@ from typing import Any
 LOGGER = logging.getLogger(__name__)
 SUPPORTED_TEXT_SUFFIXES = {".txt"}
 SUPPORTED_PDF_SUFFIXES = {".pdf"}
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+_SPACY_SENTENCIZER = None
+_SPACY_AVAILABLE: bool | None = None
 
 
 @dataclass(slots=True)
@@ -132,6 +135,78 @@ def load_documents(raw_data_dir: str | Path = Path("data/raw")) -> list[Document
 
     _log_event("document_scan_completed", loaded_count=len(documents))
     return documents
+
+
+def _segment_text_into_sentences(text: str) -> list[str]:
+    """Split text into ordered sentences using spaCy when available."""
+    global _SPACY_SENTENCIZER
+    global _SPACY_AVAILABLE
+
+    stripped_text = text.strip()
+    if not stripped_text:
+        return []
+
+    if _SPACY_AVAILABLE is False:
+        parts = _SENTENCE_SPLIT_RE.split(stripped_text)
+        return [part.strip() for part in parts if part and part.strip()]
+
+    try:
+        import spacy  # type: ignore
+
+        if _SPACY_SENTENCIZER is None:
+            nlp = spacy.blank("en")
+            nlp.add_pipe("sentencizer")
+            _SPACY_SENTENCIZER = nlp
+
+        _SPACY_AVAILABLE = True
+        doc = _SPACY_SENTENCIZER(stripped_text)
+        sentences = [sentence.text.strip() for sentence in doc.sents if sentence.text and sentence.text.strip()]
+        return sentences
+    except Exception:
+        _SPACY_AVAILABLE = False
+        parts = _SENTENCE_SPLIT_RE.split(stripped_text)
+        return [part.strip() for part in parts if part and part.strip()]
+
+
+def _build_sentence_id(chunk_id: str, position: int) -> str:
+    """Create a deterministic sentence identifier within a chunk."""
+    return f"{chunk_id}_sentence_{position}"
+
+
+def segment_sentences(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Split chunk text into ordered sentence records with strict chunk mapping."""
+    sentence_records: list[dict[str, Any]] = []
+    processed_chunks = 0
+
+    for chunk in chunks:
+        chunk_id = str(chunk["chunk_id"])
+        chunk_text = str(chunk.get("text", "")).strip()
+        if not chunk_text:
+            continue
+
+        processed_chunks += 1
+        sentences = _segment_text_into_sentences(chunk_text)
+        if not sentences:
+            sentences = [chunk_text]
+
+        for position, sentence_text in enumerate(sentences):
+            sentence_records.append(
+                {
+                    "sentence_id": _build_sentence_id(chunk_id, position),
+                    "chunk_id": chunk_id,
+                    "text": sentence_text,
+                    "position": position,
+                }
+            )
+
+    average_sentences = (len(sentence_records) / processed_chunks) if processed_chunks else 0.0
+    _log_event(
+        "sentence_segmentation_completed",
+        total_chunks_processed=processed_chunks,
+        total_sentences_generated=len(sentence_records),
+        avg_sentences_per_chunk=round(average_sentences, 2),
+    )
+    return sentence_records
 
 
 def serialize_documents(documents: list[DocumentRecord]) -> list[dict[str, Any]]:

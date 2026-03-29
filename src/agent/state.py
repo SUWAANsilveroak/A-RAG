@@ -90,6 +90,10 @@ class ContextTracker:
             return {}
         return deepcopy(record)
 
+    def get_access_log(self) -> dict[str, dict[str, Any]]:
+        """Return a copy of the full chunk access log."""
+        return deepcopy(self._access_log)
+
     def reset(self) -> None:
         """Clear all tracked chunk usage state."""
         self._read_chunk_ids.clear()
@@ -196,3 +200,110 @@ class AgentMemory:
         self._reasoning_steps.clear()
         self._tool_history.clear()
         LOGGER.info("agent_memory_reset")
+
+
+class AgentStateManager:
+    """Centralized state updater for context tracker and short-term memory."""
+
+    def __init__(self) -> None:
+        """Initialize managed tracker and memory components."""
+        self._context_tracker = ContextTracker()
+        self._agent_memory = AgentMemory()
+
+    def update_after_chunk_read(
+        self,
+        chunk_id: str,
+        step: int,
+        relevance_score: float = 0.0,
+    ) -> None:
+        """Apply state updates after a chunk-read event."""
+        try:
+            self._context_tracker.mark_chunk_read(
+                chunk_id=chunk_id,
+                step=step,
+                relevance_score=relevance_score,
+            )
+            self._agent_memory.add_retrieved_chunk(chunk_id)
+            LOGGER.info(
+                "agent_state_manager_chunk_read_updated",
+                extra={"chunk_id": chunk_id, "step": step, "relevance_score": relevance_score},
+            )
+        except Exception:
+            LOGGER.exception(
+                "agent_state_manager_chunk_read_update_failed",
+                extra={"chunk_id": chunk_id, "step": step},
+            )
+            raise
+
+    def update_after_tool_call(
+        self,
+        tool_name: str,
+        input_data: dict[str, Any],
+        output_summary: str,
+    ) -> None:
+        """Apply state updates after a tool call."""
+        try:
+            self._agent_memory.add_tool_call(
+                tool_name=tool_name,
+                input_data=input_data,
+                output_summary=output_summary,
+            )
+            LOGGER.info(
+                "agent_state_manager_tool_call_updated",
+                extra={"tool_name": tool_name},
+            )
+        except Exception:
+            LOGGER.exception(
+                "agent_state_manager_tool_call_update_failed",
+                extra={"tool_name": tool_name},
+            )
+            raise
+
+    def update_after_reasoning_step(self, reasoning_step: str) -> None:
+        """Apply state updates after a reasoning step."""
+        try:
+            self._agent_memory.add_reasoning_step(reasoning_step)
+            LOGGER.info(
+                "agent_state_manager_reasoning_updated",
+                extra={"reasoning_step": reasoning_step},
+            )
+        except Exception:
+            LOGGER.exception("agent_state_manager_reasoning_update_failed")
+            raise
+
+    def update_after_query(self, query: str) -> None:
+        """Apply state updates after receiving a new query."""
+        try:
+            self._agent_memory.set_query(query)
+            LOGGER.info(
+                "agent_state_manager_query_updated",
+                extra={"query": query},
+            )
+        except Exception:
+            LOGGER.exception("agent_state_manager_query_update_failed")
+            raise
+
+    def get_full_state(self) -> dict[str, Any]:
+        """Return the merged state from tracker and short-term memory."""
+        try:
+            return {
+                "current_query": self._agent_memory.get_query(),
+                "retrieved_chunks": self._agent_memory.get_retrieved_chunks(),
+                "reasoning_steps": self._agent_memory.get_reasoning_steps(),
+                "tool_history": self._agent_memory.get_tool_history(),
+                "read_chunk_ids": sorted(self._context_tracker.get_read_chunks()),
+                "access_log": self._context_tracker.get_access_log(),
+            }
+        except Exception:
+            LOGGER.exception("agent_state_manager_get_full_state_failed")
+            raise
+
+    def reset_all(self) -> None:
+        """Reset both tracker and memory state components."""
+        try:
+            self._context_tracker.reset()
+            self._agent_memory.reset()
+            LOGGER.info("agent_state_manager_reset_all")
+        except Exception:
+            LOGGER.exception("agent_state_manager_reset_all_failed")
+            raise

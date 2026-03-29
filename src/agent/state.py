@@ -95,3 +95,104 @@ class ContextTracker:
         self._read_chunk_ids.clear()
         self._access_log.clear()
         LOGGER.info("context_tracker_reset")
+
+
+class AgentMemory:
+    """Short-term execution memory for the agent loop."""
+
+    def __init__(self) -> None:
+        """Initialize an empty memory state."""
+        self._current_query: str = ""
+        self._retrieved_chunks: list[str] = []
+        self._retrieved_chunk_ids: set[str] = set()
+        self._reasoning_steps: list[str] = []
+        self._tool_history: list[dict[str, Any]] = []
+
+    def set_query(self, query: str) -> None:
+        """Set the current user query, including empty-query updates."""
+        normalized_query = str(query).strip()
+        self._current_query = normalized_query
+
+        if not normalized_query:
+            LOGGER.warning("agent_memory_query_updated_empty")
+            return
+
+        LOGGER.info("agent_memory_query_updated", extra={"query": normalized_query})
+
+    def get_query(self) -> str:
+        """Return the current query."""
+        return self._current_query
+
+    def add_retrieved_chunk(self, chunk_id: str) -> None:
+        """Add a retrieved chunk id while preserving order and avoiding duplicates."""
+        normalized_chunk_id = str(chunk_id).strip()
+        if not normalized_chunk_id:
+            LOGGER.warning("agent_memory_invalid_chunk_id")
+            return
+
+        if normalized_chunk_id in self._retrieved_chunk_ids:
+            LOGGER.info("agent_memory_chunk_duplicate_ignored", extra={"chunk_id": normalized_chunk_id})
+            return
+
+        self._retrieved_chunk_ids.add(normalized_chunk_id)
+        self._retrieved_chunks.append(normalized_chunk_id)
+        LOGGER.info("agent_memory_chunk_added", extra={"chunk_id": normalized_chunk_id})
+
+    def get_retrieved_chunks(self) -> list[str]:
+        """Return retrieved chunk ids in insertion order."""
+        return list(self._retrieved_chunks)
+
+    def add_reasoning_step(self, step: str) -> None:
+        """Append one reasoning step while preserving sequence."""
+        normalized_step = str(step).strip()
+        if not normalized_step:
+            LOGGER.warning("agent_memory_empty_reasoning_step")
+            return
+
+        self._reasoning_steps.append(normalized_step)
+        LOGGER.info("agent_memory_reasoning_step_added", extra={"step": normalized_step})
+
+    def get_reasoning_steps(self) -> list[str]:
+        """Return reasoning steps in order."""
+        return list(self._reasoning_steps)
+
+    def add_tool_call(
+        self,
+        tool_name: str,
+        input_data: dict[str, Any],
+        output_summary: str,
+    ) -> None:
+        """Append one tool-call history item with normalized fields."""
+        normalized_tool_name = str(tool_name).strip()
+        normalized_output_summary = str(output_summary).strip()
+
+        if not normalized_tool_name:
+            LOGGER.warning("agent_memory_empty_tool_name")
+            return
+
+        safe_input_data: dict[str, Any]
+        if isinstance(input_data, dict):
+            safe_input_data = deepcopy(input_data)
+        else:
+            safe_input_data = {"raw_input": str(input_data)}
+
+        tool_record = {
+            "tool_name": normalized_tool_name,
+            "input_data": safe_input_data,
+            "output_summary": normalized_output_summary,
+        }
+        self._tool_history.append(tool_record)
+        LOGGER.info("agent_memory_tool_call_added", extra={"tool_name": normalized_tool_name})
+
+    def get_tool_history(self) -> list[dict[str, Any]]:
+        """Return tool-call history in order."""
+        return deepcopy(self._tool_history)
+
+    def reset(self) -> None:
+        """Clear all short-term memory state."""
+        self._current_query = ""
+        self._retrieved_chunks.clear()
+        self._retrieved_chunk_ids.clear()
+        self._reasoning_steps.clear()
+        self._tool_history.clear()
+        LOGGER.info("agent_memory_reset")

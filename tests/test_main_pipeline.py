@@ -100,7 +100,7 @@ class MainPipelineTests(unittest.TestCase):
     @patch("main.generate_answer")
     @patch("main.execute_retrieval")
     def test_model_failure(self, mock_execute_retrieval: object, mock_generate_answer: object) -> None:
-        """Preserve structured output when model generation fails."""
+        """Fall back to grounded extractive output when model generation fails."""
         mock_execute_retrieval.return_value = {
             "tool_name": "keyword_search",
             "status": "success",
@@ -118,8 +118,10 @@ class MainPipelineTests(unittest.TestCase):
 
         output = run_a_rag_pipeline("Explain RAG", self.resources)
 
-        self.assertEqual(output["answer_response"]["status"], "error")
-        self.assertEqual(output["final_output"]["status"], "error")
+        self.assertEqual(output["answer_response"]["status"], "success")
+        self.assertEqual(output["answer_response"]["provider"], "fallback")
+        self.assertEqual(output["final_output"]["status"], "success")
+        self.assertTrue(output["final_output"]["answer"])
         self.assertIn("validation_results", output)
 
     @patch("main.validate_grounding", side_effect=RuntimeError("Validation blew up"))
@@ -156,4 +158,3 @@ class MainPipelineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

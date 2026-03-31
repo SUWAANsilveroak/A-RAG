@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any, Final
 
-from src.agent.answer_generator import format_final_output, generate_answer
+from src.agent.answer_generator import build_fallback_answer, format_final_output, generate_answer
 from src.agent.loop import evaluate_retrieval, execute_retrieval, select_tool, should_continue_loop
 from src.agent.planner import plan_query
 from src.agent.validator import (
@@ -200,6 +200,11 @@ def _run_single_attempt(
         model_name=str(safe_resources.get("model_name", "")).strip(),
         provider=str(safe_resources.get("provider", "ollama")).strip() or "ollama",
     )
+    if str(answer_response.get("status", "")).strip().lower() == "error":
+        answer_response = build_fallback_answer(
+            compressed_context=compressed_context,
+            error_message=str(answer_response.get("error_message", "")).strip(),
+        )
     final_output = format_final_output(answer_response, compressed_context)
 
     grounding_result = validate_grounding(final_output, compressed_context)

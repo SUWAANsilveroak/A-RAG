@@ -5,8 +5,9 @@ from __future__ import annotations
 import shutil
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from src.indexer import clean_text, load_documents
+from src.indexer import build_chunks, clean_text, load_documents, load_or_build_knowledge_base
 
 
 class DocumentLoaderTests(unittest.TestCase):
@@ -52,6 +53,67 @@ class DocumentLoaderTests(unittest.TestCase):
         """Return an empty list for a missing raw-data directory."""
         documents = load_documents(Path("missing-directory-for-tests"))
         self.assertEqual(documents, [])
+
+    def test_build_chunks_scopes_chunk_ids_per_document(self) -> None:
+        """Create globally unique chunk ids when multiple documents are indexed."""
+        (self.raw_dir / "alpha.txt").write_text("Alpha sentence one. Alpha sentence two.", encoding="utf-8")
+        (self.raw_dir / "beta.txt").write_text("Beta sentence one. Beta sentence two.", encoding="utf-8")
+
+        documents = load_documents(self.raw_dir)
+        chunks = build_chunks(documents, max_tokens=4)
+
+        self.assertGreaterEqual(len(chunks), 2)
+        self.assertEqual(len({chunk["chunk_id"] for chunk in chunks}), len(chunks))
+        self.assertTrue(all(chunk["doc_id"] for chunk in chunks))
+        self.assertTrue(all(chunk["source"].endswith(".txt") for chunk in chunks))
+
+    @patch("src.indexer.build_knowledge_base")
+    @patch("src.indexer.load_knowledge_base")
+    def test_load_or_build_prefers_existing_index(
+        self,
+        mock_load_knowledge_base: object,
+        mock_build_knowledge_base: object,
+    ) -> None:
+        """Load persisted resources when knowledge-base artifacts already exist."""
+        expected_resources = {
+            "chunks": [],
+            "model": object(),
+            "faiss_index": object(),
+            "metadata": [],
+            "read_chunk_ids": set(),
+            "model_name": "llama3.1",
+            "provider": "ollama",
+        }
+        mock_load_knowledge_base.return_value = expected_resources
+
+        resources = load_or_build_knowledge_base()
+
+        self.assertIs(resources, expected_resources)
+        mock_build_knowledge_base.assert_not_called()
+
+    @patch("src.indexer.build_knowledge_base")
+    @patch("src.indexer.load_knowledge_base", side_effect=FileNotFoundError("missing KB"))
+    def test_load_or_build_rebuilds_when_index_missing(
+        self,
+        _mock_load_knowledge_base: object,
+        mock_build_knowledge_base: object,
+    ) -> None:
+        """Build resources from raw documents when persisted artifacts are absent."""
+        expected_resources = {
+            "chunks": [],
+            "model": object(),
+            "faiss_index": object(),
+            "metadata": [],
+            "read_chunk_ids": set(),
+            "model_name": "llama3.1",
+            "provider": "ollama",
+        }
+        mock_build_knowledge_base.return_value = expected_resources
+
+        resources = load_or_build_knowledge_base()
+
+        self.assertIs(resources, expected_resources)
+        mock_build_knowledge_base.assert_called_once()
 
 
 if __name__ == "__main__":

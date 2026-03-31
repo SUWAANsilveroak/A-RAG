@@ -16,6 +16,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from main import run_a_rag_pipeline, run_retry_pipeline  # noqa: E402
+from src.indexer import load_or_build_knowledge_base  # noqa: E402
 
 
 LOGGER = logging.getLogger(__name__)
@@ -30,16 +31,8 @@ class _CliArgumentParser(argparse.ArgumentParser):
 
 
 def _build_default_resources() -> dict[str, Any]:
-    """Build safe default resource structure for local CLI execution."""
-    return {
-        "chunks": [],
-        "model": None,
-        "faiss_index": None,
-        "metadata": [],
-        "read_chunk_ids": set(),
-        "model_name": "llama3.1",
-        "provider": "ollama",
-    }
+    """Load or build the local knowledge base used by the CLI."""
+    return load_or_build_knowledge_base()
 
 
 def _build_parser() -> _CliArgumentParser:
@@ -140,4 +133,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from src.utils.chunking import create_chunks
+
 
 LOGGER = logging.getLogger(__name__)
 SUPPORTED_TEXT_SUFFIXES = {".txt"}
@@ -22,6 +24,10 @@ _SPACY_AVAILABLE: bool | None = None
 _EMBEDDING_MODELS: dict[str, Any] = {}
 _FALLBACK_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 _DEFAULT_ID_MAPPING_FILENAME = "id_mapping.json"
+_DEFAULT_CHUNKS_FILENAME = "chunks.json"
+_DEFAULT_DOCUMENTS_FILENAME = "documents.json"
+_DEFAULT_FAISS_FILENAME = "sentence_index.faiss"
+_DEFAULT_METADATA_FILENAME = "sentence_metadata.json"
 
 
 @dataclass(slots=True)
@@ -507,3 +513,224 @@ def load_metadata(metadata_path: str) -> dict[str, Any]:
 def serialize_documents(documents: list[DocumentRecord]) -> list[dict[str, Any]]:
     """Convert document records into dictionaries for debugging or tests."""
     return [asdict(document) for document in documents]
+
+
+def _build_chunk_id(doc_id: str, position: int) -> str:
+    """Create a document-scoped chunk identifier that stays unique across files."""
+    return f"{doc_id}_chunk_{position}"
+
+
+def build_chunks(documents: list[DocumentRecord], max_tokens: int = 1000) -> list[dict[str, Any]]:
+    """Create document-scoped chunks from loaded documents."""
+    chunk_records: list[dict[str, Any]] = []
+
+    for document in documents:
+        document_chunks = create_chunks(document.text, max_tokens=max_tokens)
+        for position, chunk in enumerate(document_chunks):
+            chunk_records.append(
+                {
+                    "chunk_id": _build_chunk_id(document.doc_id, position),
+                    "doc_id": document.doc_id,
+                    "title": document.title,
+                    "source": document.source,
+                    "text": str(chunk.get("text", "")).strip(),
+                    "position": position,
+                }
+            )
+
+    _log_event(
+        "chunk_build_completed",
+        document_count=len(documents),
+        chunk_count=len(chunk_records),
+        max_tokens=max_tokens,
+    )
+    return chunk_records
+
+
+def _save_json(payload: Any, output_path: str | Path) -> Path:
+    """Persist JSON payloads using UTF-8 encoding."""
+    resolved_path = _ensure_parent_directory(output_path)
+    with resolved_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+    return resolved_path
+
+
+def _load_json(input_path: str | Path) -> Any:
+    """Load a JSON file from disk."""
+    resolved_path = Path(input_path)
+    with resolved_path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def save_chunks(chunks: list[dict[str, Any]], output_path: str | Path) -> None:
+    """Persist chunk records for later query-time loading."""
+    resolved_path = _save_json(chunks, output_path)
+    _log_event("chunks_saved", chunk_count=len(chunks), chunks_path=str(resolved_path.resolve()))
+
+
+def load_chunks(input_path: str | Path) -> list[dict[str, Any]]:
+    """Load chunk records from disk."""
+    loaded_chunks = _load_json(input_path)
+    if not isinstance(loaded_chunks, list):
+        raise ValueError("Chunk storage must contain a list of chunk records.")
+    return loaded_chunks
+
+
+def build_knowledge_base(
+    raw_data_dir: str | Path = Path("data/raw"),
+    processed_dir: str | Path = Path("data/processed"),
+    index_dir: str | Path = Path("index"),
+    embedding_model_name: str = "BAAI/bge-small-en-v1.5",
+    generation_model_name: str = "llama3.1",
+    provider: str = "ollama",
+    max_tokens: int = 1000,
+) -> dict[str, Any]:
+    """Build the local knowledge base from raw files and return pipeline resources."""
+    processed_path = Path(processed_dir)
+    index_path = Path(index_dir)
+
+    documents = load_documents(raw_data_dir)
+    if not documents:
+        raise RuntimeError("No supported non-empty documents were found in data/raw.")
+
+    chunks = build_chunks(documents, max_tokens=max_tokens)
+    if not chunks:
+        raise RuntimeError("Document loading succeeded, but no chunks were created.")
+
+    sentences = segment_sentences(chunks)
+    save_chunks(chunks, processed_path / _DEFAULT_CHUNKS_FILENAME)
+    _save_json(serialize_documents(documents), processed_path / _DEFAULT_DOCUMENTS_FILENAME)
+    embedded_sentences: list[dict[str, Any]] = []
+    model = None
+    faiss_index = None
+
+    try:
+        embedded_sentences = generate_sentence_embeddings(sentences, model_name=embedding_model_name)
+        if embedded_sentences:
+            save_faiss_index(
+                [list(record["embedding"]) for record in embedded_sentences],
+                str(index_path / _DEFAULT_FAISS_FILENAME),
+            )
+            model = _load_embedding_model(embedding_model_name)
+            faiss_index = load_faiss_index(index_path / _DEFAULT_FAISS_FILENAME)
+    except Exception as error:
+        _log_event(
+            "knowledge_base_embedding_unavailable",
+            model_name=embedding_model_name,
+            error=str(error),
+        )
+
+    save_metadata(embedded_sentences, str(index_path / _DEFAULT_METADATA_FILENAME))
+    metadata_bundle = load_metadata(index_path / _DEFAULT_METADATA_FILENAME)
+
+    _log_event(
+        "knowledge_base_build_completed",
+        document_count=len(documents),
+        chunk_count=len(chunks),
+        sentence_count=len(metadata_bundle["metadata"]),
+        raw_data_dir=str(Path(raw_data_dir).resolve()),
+    )
+    return {
+        "chunks": chunks,
+        "model": model,
+        "faiss_index": faiss_index,
+        "metadata": metadata_bundle["metadata"],
+        "read_chunk_ids": set(),
+        "model_name": generation_model_name,
+        "provider": provider,
+    }
+
+
+def load_knowledge_base(
+    processed_dir: str | Path = Path("data/processed"),
+    index_dir: str | Path = Path("index"),
+    embedding_model_name: str = "BAAI/bge-small-en-v1.5",
+    generation_model_name: str = "llama3.1",
+    provider: str = "ollama",
+) -> dict[str, Any]:
+    """Load a previously built local knowledge base from disk."""
+    processed_path = Path(processed_dir)
+    index_path = Path(index_dir)
+    chunks_path = processed_path / _DEFAULT_CHUNKS_FILENAME
+    faiss_path = index_path / _DEFAULT_FAISS_FILENAME
+    metadata_path = index_path / _DEFAULT_METADATA_FILENAME
+
+    if not chunks_path.exists():
+        raise FileNotFoundError(f"Chunk file not found: {chunks_path}")
+
+    chunks = load_chunks(chunks_path)
+    metadata_bundle = {"metadata": [], "id_mapping": {}}
+    if metadata_path.exists():
+        metadata_bundle = load_metadata(metadata_path)
+
+    model = None
+    faiss_index = None
+    if metadata_bundle["metadata"] and faiss_path.exists():
+        try:
+            model = _load_embedding_model(embedding_model_name)
+            faiss_index = load_faiss_index(faiss_path)
+        except Exception as error:
+            _log_event(
+                "knowledge_base_semantic_load_unavailable",
+                model_name=embedding_model_name,
+                error=str(error),
+            )
+
+    _log_event(
+        "knowledge_base_load_completed",
+        chunk_count=len(chunks),
+        sentence_count=len(metadata_bundle["metadata"]),
+        processed_dir=str(processed_path.resolve()),
+        index_dir=str(index_path.resolve()),
+    )
+    return {
+        "chunks": chunks,
+        "model": model,
+        "faiss_index": faiss_index,
+        "metadata": metadata_bundle["metadata"],
+        "read_chunk_ids": set(),
+        "model_name": generation_model_name,
+        "provider": provider,
+    }
+
+
+def load_or_build_knowledge_base(
+    raw_data_dir: str | Path = Path("data/raw"),
+    processed_dir: str | Path = Path("data/processed"),
+    index_dir: str | Path = Path("index"),
+    embedding_model_name: str = "BAAI/bge-small-en-v1.5",
+    generation_model_name: str = "llama3.1",
+    provider: str = "ollama",
+    max_tokens: int = 1000,
+    force_rebuild: bool = False,
+) -> dict[str, Any]:
+    """Load an existing knowledge base or build one from raw documents."""
+    if force_rebuild:
+        return build_knowledge_base(
+            raw_data_dir=raw_data_dir,
+            processed_dir=processed_dir,
+            index_dir=index_dir,
+            embedding_model_name=embedding_model_name,
+            generation_model_name=generation_model_name,
+            provider=provider,
+            max_tokens=max_tokens,
+        )
+
+    try:
+        return load_knowledge_base(
+            processed_dir=processed_dir,
+            index_dir=index_dir,
+            embedding_model_name=embedding_model_name,
+            generation_model_name=generation_model_name,
+            provider=provider,
+        )
+    except FileNotFoundError:
+        return build_knowledge_base(
+            raw_data_dir=raw_data_dir,
+            processed_dir=processed_dir,
+            index_dir=index_dir,
+            embedding_model_name=embedding_model_name,
+            generation_model_name=generation_model_name,
+            provider=provider,
+            max_tokens=max_tokens,
+        )

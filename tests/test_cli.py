@@ -29,9 +29,19 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result, {"status": "ok"})
         self.assertEqual(printed_payload, {"status": "ok"})
 
+    @patch("src.cli.load_or_build_knowledge_base")
     @patch("src.cli.run_a_rag_pipeline")
-    def test_query_command(self, mock_run_pipeline: object) -> None:
+    def test_query_command(self, mock_run_pipeline: object, mock_load_resources: object) -> None:
         """Return success payload for query command."""
+        mock_load_resources.return_value = {
+            "chunks": [{"chunk_id": "doc_chunk_1", "text": "RAG chunk", "position": 0}],
+            "model": object(),
+            "faiss_index": object(),
+            "metadata": [{"sentence_id": "s1", "chunk_id": "doc_chunk_1", "text": "RAG chunk", "position": 0}],
+            "read_chunk_ids": set(),
+            "model_name": "llama3.1",
+            "provider": "ollama",
+        }
         mock_run_pipeline.return_value = {"query": "What is RAG?", "final_output": {"status": "success"}}
         result, printed_payload = self._run_and_capture(["query", "What is RAG?"])
 
@@ -39,15 +49,34 @@ class CliTests(unittest.TestCase):
         self.assertEqual(printed_payload["status"], "success")
         self.assertIn("result", result)
 
+    @patch("src.cli.load_or_build_knowledge_base")
     @patch("src.cli.run_retry_pipeline")
-    def test_retry_command(self, mock_run_retry_pipeline: object) -> None:
+    def test_retry_command(self, mock_run_retry_pipeline: object, mock_load_resources: object) -> None:
         """Return success payload for retry command."""
+        mock_load_resources.return_value = {
+            "chunks": [{"chunk_id": "doc_chunk_1", "text": "Retry chunk", "position": 0}],
+            "model": object(),
+            "faiss_index": object(),
+            "metadata": [{"sentence_id": "s1", "chunk_id": "doc_chunk_1", "text": "Retry chunk", "position": 0}],
+            "read_chunk_ids": set(),
+            "model_name": "llama3.1",
+            "provider": "ollama",
+        }
         mock_run_retry_pipeline.return_value = {"query": "Explain RAG", "retry_count": 1, "final_status": "success"}
         result, printed_payload = self._run_and_capture(["retry", "Explain RAG"])
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(printed_payload["status"], "success")
         self.assertEqual(result["result"]["retry_count"], 1)
+
+    @patch("src.cli.load_or_build_knowledge_base", side_effect=RuntimeError("KB build failed"))
+    def test_query_command_surfaces_resource_bootstrap_failure(self, _mock_load_resources: object) -> None:
+        """Return error payload when CLI knowledge-base bootstrap fails."""
+        result, printed_payload = self._run_and_capture(["query", "What is RAG?"])
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("KB build failed", result["error_message"])
+        self.assertEqual(printed_payload["status"], "error")
 
     def test_empty_query(self) -> None:
         """Return error payload for empty query command."""
@@ -66,4 +95,3 @@ class CliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

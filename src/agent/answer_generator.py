@@ -305,3 +305,38 @@ def format_final_output(
             "latency_seconds": 0.0,
             "error_message": str(error),
         }
+
+
+def build_fallback_answer(
+    compressed_context: list[dict[str, Any]],
+    error_message: str = "",
+) -> dict[str, Any]:
+    """Build a grounded extractive fallback answer when model generation is unavailable."""
+    snippets: list[str] = []
+    for item in compressed_context:
+        if not isinstance(item, dict):
+            continue
+        compressed_text = str(item.get("compressed_text", "")).strip()
+        if not compressed_text:
+            continue
+        snippets.append(compressed_text)
+        if len(snippets) >= 2:
+            break
+
+    if snippets:
+        answer_text = " ".join(snippets)
+    else:
+        answer_text = "Not found in retrieved context"
+
+    if len(answer_text) > 500:
+        answer_text = answer_text[:497].rstrip() + "..."
+
+    return {
+        "status": "success",
+        "provider": "fallback",
+        "model_name": "extractive-context",
+        "answer": answer_text,
+        "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "latency_seconds": 0.0,
+        "fallback_reason": str(error_message).strip(),
+    }

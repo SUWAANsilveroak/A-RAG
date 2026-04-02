@@ -19,8 +19,7 @@ LOGGER = logging.getLogger(__name__)
 SUPPORTED_TEXT_SUFFIXES = {".txt"}
 SUPPORTED_PDF_SUFFIXES = {".pdf"}
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
-_SPACY_SENTENCIZER = None
-_SPACY_AVAILABLE: bool | None = None
+_NLTK_READY = False
 _EMBEDDING_MODELS: dict[str, Any] = {}
 _FALLBACK_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 _DEFAULT_ID_MAPPING_FILENAME = "id_mapping.json"
@@ -148,34 +147,25 @@ def load_documents(raw_data_dir: str | Path = Path("data/raw")) -> list[Document
 
 
 def _segment_text_into_sentences(text: str) -> list[str]:
-    """Split text into ordered sentences using spaCy when available."""
-    global _SPACY_SENTENCIZER
-    global _SPACY_AVAILABLE
+    """Split text into ordered sentences using NLTK."""
+    global _NLTK_READY
 
     stripped_text = text.strip()
     if not stripped_text:
         return []
 
-    if _SPACY_AVAILABLE is False:
-        parts = _SENTENCE_SPLIT_RE.split(stripped_text)
-        return [part.strip() for part in parts if part and part.strip()]
+    if not _NLTK_READY:
+        import nltk
+        try:
+            nltk.data.find('tokenizers/punkt')
+        except LookupError:
+            nltk.download('punkt', quiet=True)
+            nltk.download('punkt_tab', quiet=True)
+        _NLTK_READY = True
 
-    try:
-        import spacy  # type: ignore
-
-        if _SPACY_SENTENCIZER is None:
-            nlp = spacy.blank("en")
-            nlp.add_pipe("sentencizer")
-            _SPACY_SENTENCIZER = nlp
-
-        _SPACY_AVAILABLE = True
-        doc = _SPACY_SENTENCIZER(stripped_text)
-        sentences = [sentence.text.strip() for sentence in doc.sents if sentence.text and sentence.text.strip()]
-        return sentences
-    except Exception:
-        _SPACY_AVAILABLE = False
-        parts = _SENTENCE_SPLIT_RE.split(stripped_text)
-        return [part.strip() for part in parts if part and part.strip()]
+    from nltk.tokenize import sent_tokenize
+    sentences = sent_tokenize(stripped_text)
+    return [s.strip() for s in sentences if s.strip()]
 
 
 def _build_sentence_id(chunk_id: str, position: int) -> str:
@@ -581,7 +571,7 @@ def build_knowledge_base(
     processed_dir: str | Path = Path("data/processed"),
     index_dir: str | Path = Path("index"),
     embedding_model_name: str = "BAAI/bge-small-en-v1.5",
-    generation_model_name: str = "llama3.1",
+    generation_model_name: str = "tinyllama",
     provider: str = "ollama",
     max_tokens: int = 1000,
 ) -> dict[str, Any]:
@@ -645,7 +635,7 @@ def load_knowledge_base(
     processed_dir: str | Path = Path("data/processed"),
     index_dir: str | Path = Path("index"),
     embedding_model_name: str = "BAAI/bge-small-en-v1.5",
-    generation_model_name: str = "llama3.1",
+    generation_model_name: str = "tinyllama",
     provider: str = "ollama",
 ) -> dict[str, Any]:
     """Load a previously built local knowledge base from disk."""
@@ -699,7 +689,7 @@ def load_or_build_knowledge_base(
     processed_dir: str | Path = Path("data/processed"),
     index_dir: str | Path = Path("index"),
     embedding_model_name: str = "BAAI/bge-small-en-v1.5",
-    generation_model_name: str = "llama3.1",
+    generation_model_name: str = "tinyllama",
     provider: str = "ollama",
     max_tokens: int = 1000,
     force_rebuild: bool = False,

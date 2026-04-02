@@ -303,7 +303,8 @@ class RetryPipelineTests(unittest.TestCase):
 
         output = run_retry_pipeline("Explain RAG", self.resources, max_steps=5, max_retries=2)
         self.assertEqual(len(output["attempts"]), 2)
-        self.assertEqual(output["final_status"], "error")
+        self.assertEqual(output["final_status"], "success")
+        self.assertEqual(output["final_attempt"]["final_output"]["provider"], "fallback")
 
 
 if __name__ == "__main__":

@@ -39,41 +39,25 @@ def _estimate_tokens(text: str) -> int:
     return int(math.ceil(word_count / 0.75)) if word_count else 0
 
 
-_SPACY_SENTENCIZER = None
-_SPACY_AVAILABLE: bool | None = None
+_NLTK_READY = False
 
 
 def _segment_sentences(text: str) -> List[str]:
-    """Split text into sentences using spaCy if available, else a regex fallback."""
+    """Split text into sentences using NLTK."""
+    global _NLTK_READY
+    
+    if not _NLTK_READY:
+        import nltk
+        try:
+            nltk.data.find('tokenizers/punkt')
+        except LookupError:
+            nltk.download('punkt', quiet=True)
+            nltk.download('punkt_tab', quiet=True)
+        _NLTK_READY = True
 
-    global _SPACY_SENTENCIZER
-    global _SPACY_AVAILABLE
-
-    # If we already know spaCy can't be used (e.g., DLL blocked), avoid retrying
-    # the failing import on every create_chunks() call.
-    if _SPACY_AVAILABLE is False:
-        parts = re.split(r"(?<=[.!?])\s+", text.strip())
-        return [p.strip() for p in parts if p.strip()]
-
-    try:
-        import spacy  # type: ignore
-
-        if _SPACY_SENTENCIZER is None:
-            nlp = spacy.blank("en")
-            # This doesn't require a downloaded model.
-            nlp.add_pipe("sentencizer")
-            _SPACY_SENTENCIZER = nlp
-
-        _SPACY_AVAILABLE = True
-        doc = _SPACY_SENTENCIZER(text)
-        sentences = [s.text.strip() for s in doc.sents if s.text and s.text.strip()]
-        return sentences
-    except Exception:
-        _SPACY_AVAILABLE = False
-        # Regex fallback: split on whitespace following sentence-ending punctuation.
-        # Keeps punctuation with the preceding sentence.
-        parts = re.split(r"(?<=[.!?])\s+", text.strip())
-        return [p.strip() for p in parts if p.strip()]
+    from nltk.tokenize import sent_tokenize
+    sentences = sent_tokenize(text)
+    return [s.strip() for s in sentences if s.strip()]
 
 
 def create_chunks(text: str, max_tokens: int = 1000) -> List[Dict]:

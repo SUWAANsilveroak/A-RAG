@@ -147,10 +147,27 @@ def generate_answer(
     litellm_model_name = _build_litellm_model_name(normalized_provider, normalized_model_name)
     start = time.perf_counter()
 
+    # Split completion-style prompt into proper chat messages so small models
+    # (e.g. TinyLlama) receive a system role instruction instead of echoing the
+    # full prompt back as completion text.
+    if normalized_prompt.startswith("SYSTEM:\n"):
+        parts = normalized_prompt.split("\n\n", 1)
+        system_text = parts[0].replace("SYSTEM:\n", "", 1).strip()
+        user_text = parts[1].strip() if len(parts) > 1 else ""
+        # Strip the trailing "ANSWER:" label so the model just generates the answer.
+        if user_text.endswith("\nANSWER:"):
+            user_text = user_text[: -len("\nANSWER:")].strip()
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": system_text},
+            {"role": "user", "content": user_text},
+        ]
+    else:
+        messages = [{"role": "user", "content": normalized_prompt}]
+
     try:
         response = _call_litellm_completion(
             model=litellm_model_name,
-            messages=[{"role": "user", "content": normalized_prompt}],
+            messages=messages,
             temperature=float(temperature),
             max_tokens=int(max_tokens),
         )

@@ -1,0 +1,174 @@
+﻿.\.venv\Scripts\python.exe : 
+agent_memory_empty_reasoning_step
+At line:1 char:1
++ .\.venv\Scripts\python.exe -m 
+unittest discover -s tests > 
+test_outpu ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpec 
+   ified: (agent_memory_empty_reason  
+  ing_step:String) [], RemoteExcept   
+ ion
+    + FullyQualifiedErrorId : NativeC 
+   ommandError
+ 
+..agent_memory_empty_tool_name
+...agent_memory_query_updated_empty
+.answer_generation_invalid_prompt
+.answer_generation_empty_response
+.answer_generation_invalid_provider
+.answer_generation_failed
+..api_query_empty_query
+..api_query_failed
+.....................cli_empty_query
+...cli_unhandled_error
+..cli_parse_error
+..................context_tracker_inva
+lid_chunk_id
+context_tracker_invalid_chunk_id
+....debug_retrieval_flow_missing_retri
+eval_output
+debug_validation_flow_missing_fields
+debug_answer_flow_empty_answer
+debug_answer_flow_empty_prompt
+........retrieval_evaluation_error_sta
+tus
+................hybrid_search_tool_fai
+led
+Traceback (most recent call last):
+  File "C:\Users\Dell\OneDrive\Desktop
+\A-RAG\src\tools\search_tools.py", 
+line 205, in run_hybrid_search_tool
+    results = hybrid_search(
+        query=query,
+    ...<4 lines>...
+        top_k=top_k,
+    )
+  File "C:\Users\Dell\OneDrive\Desktop
+\A-RAG\src\retrieval\hybrid.py", line 
+53, in hybrid_search
+    semantic_results = 
+semantic_search(cleaned_query, model, 
+faiss_index, metadata, top_k=top_k)
+  File "C:\Users\Dell\OneDrive\Desktop
+\A-RAG\src\retrieval\semantic.py", 
+line 113, in semantic_search
+    scores_matrix, indices_matrix = 
+faiss_index.search(query_vector, 
+search_k)
+                                    
+^^^^^^^^^^^^^^^^^^
+AttributeError: 'BrokenFaissIndex' 
+object has no attribute 'search'
+.hybrid_search_tool_failed
+Traceback (most recent call last):
+  File "C:\Users\Dell\OneDrive\Desktop
+\A-RAG\src\tools\search_tools.py", 
+line 205, in run_hybrid_search_tool
+    results = hybrid_search(
+        query=query,
+    ...<4 lines>...
+        top_k=top_k,
+    )
+  File "C:\Users\Dell\OneDrive\Desktop
+\A-RAG\src\retrieval\hybrid.py", line 
+52, in hybrid_search
+    keyword_results = 
+keyword_search(cleaned_query, chunks, 
+top_k=top_k)
+  File "C:\Users\Dell\OneDrive\Desktop
+\A-RAG\src\retrieval\keyword.py", 
+line 108, in keyword_search
+    for chunk in chunks:
+                 ^^^^^^
+TypeError: 'NoneType' object is not 
+iterable
+......................keyword_search_t
+ool_failed
+Traceback (most recent call last):
+  File "C:\Users\Dell\OneDrive\Desktop
+\A-RAG\src\tools\search_tools.py", 
+line 60, in run_keyword_search_tool
+    results = 
+keyword_search(query=query, 
+chunks=chunks, top_k=top_k)
+  File "C:\Users\Dell\OneDrive\Desktop
+\A-RAG\src\retrieval\keyword.py", 
+line 108, in keyword_search
+    for chunk in chunks:
+                 ^^^^^^
+TypeError: 'NoneType' object is not 
+iterable
+...pipeline_log_error
+.....loop_control_invalid_step_count
+.....pipeline_log_error
+.pipeline_log_error
+..retrieval_evaluation_error_status
+..pipeline_log_error
+a_rag_pipeline_failed
+...system_metrics_negative_latency
+system_metrics_negative_retry_count
+...........................retrieval_e
+xecution_not_ready
+.retrieval_execution_invalid_tool
+......F.retrieval_evaluation_error_sta
+tus
+..........semantic_search_tool_failed
+Traceback (most recent call last):
+  File "C:\Users\Dell\OneDrive\Desktop
+\A-RAG\src\tools\search_tools.py", 
+line 129, in run_semantic_search_tool
+    results = semantic_search(
+        query=query,
+    ...<3 lines>...
+        top_k=top_k,
+    )
+  File "C:\Users\Dell\OneDrive\Desktop
+\A-RAG\src\retrieval\semantic.py", 
+line 113, in semantic_search
+    scores_matrix, indices_matrix = 
+faiss_index.search(query_vector, 
+search_k)
+                                    
+^^^^^^^^^^^^^^^^^^
+AttributeError: 'BrokenFaissIndex' 
+object has no attribute 'search'
+.................agent_memory_empty_re
+asoning_step
+.agent_memory_empty_tool_name
+.....tool_selection_unknown_strategy
+.
+======================================
+================================
+FAIL: test_model_failure_during_retry 
+(test_retry_pipeline.RetryPipelineTest
+s.test_model_failure_during_retry)
+Handle model failure on retry attempt 
+and return safe final status.
+--------------------------------------
+--------------------------------
+Traceback (most recent call last):
+  File 
+"C:\Python314\Lib\unittest\mock.py", 
+line 1432, in patched
+    return func(*newargs, 
+**newkeywargs)
+  File "C:\Users\Dell\OneDrive\Desktop
+\A-RAG\tests\test_retry_pipeline.py", 
+line 306, in 
+test_model_failure_during_retry
+    self.assertEqual(output["final_sta
+tus"], "error")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^
+AssertionError: 'success' != 'error'
+- success
++ error
+
+
+--------------------------------------
+--------------------------------
+Ran 199 tests in 1.926s
+
+FAILED (failures=1)
